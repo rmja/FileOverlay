@@ -2,13 +2,6 @@
 
 A file provider wrapper for ASP.NET Core that enables runtime modification of static files. Useful for rewriting HTML base href attributes when hosting under a path base, while preserving proper HTTP caching headers.
 
-## Installation
-
-```bash
-dotnet add package FileOverlay
-```
-
-## Problem Statement
 
 When hosting ASP.NET Core applications (especially SPAs) under a path base like `/myapp`, you often need to dynamically rewrite the `<base href="/">` tag in your HTML to match the deployment path. Traditional solutions either:
 
@@ -22,6 +15,12 @@ FileOverlay solves this by creating a transparent file provider overlay that:
 - ✅ Preserves all HTTP caching headers (ETags, LastModified)
 - ✅ Works seamlessly with ASP.NET Core's static file middleware
 - ✅ Supports any IFileProvider source
+
+## Installation
+
+```bash
+dotnet add package FileOverlay
+```
 
 ## Usage Example: Replacing `<base href="/">` with PathBase
 
