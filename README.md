@@ -51,6 +51,49 @@ app.UseStaticFiles(new StaticFileOptions
 app.Run();
 ```
 
+### Complete SPA Example with Fallback Routing
+
+For a typical SPA setup with client-side routing, you'll want to use the full middleware pipeline with `MapFallbackToFile`:
+
+```csharp
+using FileOverlay;
+
+var builder = WebApplication.CreateBuilder(args);
+
+var app = builder.Build();
+
+// Get the PathBase from configuration or environment
+var pathBase = app.Configuration["PathBase"] ?? "/";
+
+// Create an overlay that rewrites base href in index.html
+var fileProvider = app.Environment.WebRootFileProvider.WithBaseHrefRewrite(
+    pathBase: pathBase,
+    "index.html"
+);
+
+// Optional (relevant if there are api endpoints that are registered)
+app.UsePathBase(pathBase)
+   .UseRouting() // Must be called explicitly for PathBase to have effect, see https://andrewlock.net/using-pathbase-with-dotnet-6-webapplicationbuilder/#option-1-controlling-the-location-of-userouting-
+
+app.UseDefaultFiles()
+   .UseStaticFiles(new StaticFileOptions 
+   { 
+       FileProvider = fileProvider 
+   });
+
+app.MapFallbackToFile("index.html", new StaticFileOptions 
+{ 
+    FileProvider = fileProvider 
+});
+
+app.Run();
+```
+
+This ensures that:
+- Static files are served with the overlayed file provider
+- Client-side routes (like `/products`, `/about`) fall back to the transformed `index.html`
+- The base href is correctly rewritten in all scenarios
+
 ### What it does
 
 If your `index.html` contains:
