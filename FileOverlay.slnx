@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/FileOverlay/FileOverlay.csproj" />
+  <Project Path="test/FileOverlay.Tests/FileOverlay.Tests.csproj" />
+</Solution>
