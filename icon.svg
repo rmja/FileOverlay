@@ -1,0 +1,69 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle with gradient -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="file1Gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f093fb;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#f5576c;stop-opacity:0.9" />
+    </linearGradient>
+    <linearGradient id="file2Gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4facfe;stop-opacity:0.95" />
+      <stop offset="100%" style="stop-color:#00f2fe;stop-opacity:0.95" />
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <circle cx="128" cy="128" r="120" fill="url(#bgGradient)"/>
+  
+  <!-- Back file (base layer) -->
+  <g filter="url(#shadow)">
+    <path d="M 70 85 L 70 195 L 170 195 L 170 110 L 145 85 Z" 
+          fill="url(#file1Gradient)" 
+          stroke="#ffffff" 
+          stroke-width="2" 
+          opacity="0.7"/>
+    <path d="M 145 85 L 145 110 L 170 110" 
+          fill="#ffffff" 
+          opacity="0.3"/>
+    <!-- File lines -->
+    <line x1="85" y1="125" x2="155" y2="125" stroke="#ffffff" stroke-width="2" opacity="0.6"/>
+    <line x1="85" y1="140" x2="155" y2="140" stroke="#ffffff" stroke-width="2" opacity="0.6"/>
+    <line x1="85" y1="155" x2="135" y2="155" stroke="#ffffff" stroke-width="2" opacity="0.6"/>
+  </g>
+  
+  <!-- Front file (overlay layer) -->
+  <g filter="url(#shadow)">
+    <path d="M 86 61 L 86 171 L 186 171 L 186 86 L 161 61 Z" 
+          fill="url(#file2Gradient)" 
+          stroke="#ffffff" 
+          stroke-width="3"/>
+    <path d="M 161 61 L 161 86 L 186 86" 
+          fill="#ffffff" 
+          opacity="0.4"/>
+    <!-- File lines -->
+    <line x1="101" y1="101" x2="171" y2="101" stroke="#ffffff" stroke-width="3" opacity="0.8"/>
+    <line x1="101" y1="116" x2="171" y2="116" stroke="#ffffff" stroke-width="3" opacity="0.8"/>
+    <line x1="101" y1="131" x2="151" y2="131" stroke="#ffffff" stroke-width="3" opacity="0.8"/>
+  </g>
+  
+  <!-- Overlay indicator (layering symbol) -->
+  <g transform="translate(178, 180)">
+    <circle cx="0" cy="0" r="24" fill="#ffffff" filter="url(#shadow)"/>
+    <path d="M -8 -4 L -8 4 L 0 8 L 8 4 L 8 -4 L 0 0 Z" 
+          fill="#667eea" 
+          stroke="#667eea" 
+          stroke-width="1.5"
+          stroke-linejoin="round"/>
+    <path d="M -8 -8 L -8 -4 L 0 0 L 8 -4 L 8 -8 L 0 -12 Z" 
+          fill="#4facfe" 
+          stroke="#4facfe" 
+          stroke-width="1.5"
+          stroke-linejoin="round"/>
+  </g>
+</svg>
