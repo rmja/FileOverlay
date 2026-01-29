@@ -13,7 +13,7 @@ namespace FileOverlay;
 /// preserving proper file metadata (LastModified, Content-Length, ETags) for HTTP caching.
 /// Files not explicitly overlayed are served directly from the inner provider.
 /// </remarks>
-public class OverlayFileProvider : IFileProvider
+public class OverlayFileProvider : IFileProvider, IDisposable
 {
     private readonly IFileProvider _innerProvider;
     private readonly PhysicalFileProvider _overlayProvider;
@@ -115,4 +115,29 @@ public class OverlayFileProvider : IFileProvider
 
     /// <inheritdoc/>
     public IChangeToken Watch(string filter) => _innerProvider.Watch(filter);
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        GC.SuppressFinalize(this);
+
+        if (_ownsOverlayProvider)
+        {
+            var overlayRoot = _overlayProvider.Root;
+            _overlayProvider.Dispose();
+
+            // Clean up the temporary directory
+            if (Directory.Exists(overlayRoot))
+            {
+                try
+                {
+                    Directory.Delete(overlayRoot, recursive: true);
+                }
+                catch
+                {
+                    // Best effort cleanup - file might be locked
+                }
+            }
+        }
+    }
 }
