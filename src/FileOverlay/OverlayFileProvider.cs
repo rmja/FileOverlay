@@ -1,5 +1,4 @@
 ﻿using System.Reflection;
-using FileOverlay;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 
@@ -17,23 +16,42 @@ namespace FileOverlay;
 public class OverlayFileProvider : IFileProvider
 {
     private readonly IFileProvider _innerProvider;
-    private readonly string _overlayDirectory;
     private readonly PhysicalFileProvider _overlayProvider;
     private readonly HashSet<string> _overlayedFiles = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OverlayFileProvider"/> class.
+    /// Creates a temporary overlay directory for storing modified copies of files.
     /// </summary>
     /// <param name="innerProvider">The underlying file provider to wrap.</param>
+    /// <remarks>
+    /// The overlay directory is automatically created in the system's temporary folder
+    /// and is prefixed with the entry assembly name if available. Files overlayed using
+    /// <see cref="CreateOverlay"/> will be physically copied to this temporary location.
+    /// </remarks>
     public OverlayFileProvider(IFileProvider innerProvider)
+        : this(innerProvider, CreateTempPhysicalFileProvider()) { }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="OverlayFileProvider" /> class with the specified inner and overlay file providers.
+    /// </summary>
+    /// <remarks>The overlay provider is typically used to supply files that should take precedence over those
+    /// in the inner provider. When resolving files, the overlay provider is checked first, and if a file is not found,
+    /// the inner provider is used as a fallback.</remarks>
+    /// <param name="innerProvider">The primary file provider that supplies the base set of files. Cannot be null.</param>
+    /// <param name="overlayProvider">The file provider whose files will overlay or override those from the inner provider. Cannot be null.</param>
+    public OverlayFileProvider(IFileProvider innerProvider, PhysicalFileProvider overlayProvider)
     {
         _innerProvider = innerProvider;
+        _overlayProvider = overlayProvider;
+    }
 
-        // See https://github.com/dotnet/runtime/blob/9e84f5eba0effdf4f75f52a5c1465e08918a75a4/src/libraries/Microsoft.Extensions.Hosting/src/HostBuilder.cs#L235
+    private static PhysicalFileProvider CreateTempPhysicalFileProvider()
+    {
         var applicationName = Assembly.GetEntryAssembly()?.GetName().Name;
         var directoryPrefix = applicationName is not null ? applicationName + "-" : null;
-        _overlayDirectory = Directory.CreateTempSubdirectory(directoryPrefix).FullName;
-        _overlayProvider = new PhysicalFileProvider(_overlayDirectory);
+        var tempRoot = Directory.CreateTempSubdirectory(directoryPrefix).FullName;
+        return new PhysicalFileProvider(tempRoot);
     }
 
     /// <summary>
@@ -56,7 +74,7 @@ public class OverlayFileProvider : IFileProvider
         }
 
         var normalizedPath = filePath.TrimStart('/');
-        var destinationPath = Path.Combine(_overlayDirectory, normalizedPath);
+        var destinationPath = Path.Combine(_overlayProvider.Root, normalizedPath);
         var destinationDir = Path.GetDirectoryName(destinationPath)!;
         Directory.CreateDirectory(destinationDir);
 
