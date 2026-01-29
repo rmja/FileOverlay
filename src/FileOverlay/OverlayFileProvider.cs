@@ -17,7 +17,7 @@ public class OverlayFileProvider : IFileProvider
 {
     private readonly IFileProvider _innerProvider;
     private readonly PhysicalFileProvider _overlayProvider;
-    private readonly HashSet<string> _overlayedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly bool _ownsOverlayProvider;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OverlayFileProvider"/> class.
@@ -30,7 +30,7 @@ public class OverlayFileProvider : IFileProvider
     /// <see cref="CreateOverlay"/> will be physically copied to this temporary location.
     /// </remarks>
     public OverlayFileProvider(IFileProvider innerProvider)
-        : this(innerProvider, CreateTempPhysicalFileProvider()) { }
+        : this(innerProvider, CreateTempPhysicalFileProvider(), ownsOverlayProvider: true) { }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OverlayFileProvider" /> class with the specified inner and overlay file providers.
@@ -41,17 +41,25 @@ public class OverlayFileProvider : IFileProvider
     /// <param name="innerProvider">The primary file provider that supplies the base set of files. Cannot be null.</param>
     /// <param name="overlayProvider">The file provider whose files will overlay or override those from the inner provider. Cannot be null.</param>
     public OverlayFileProvider(IFileProvider innerProvider, PhysicalFileProvider overlayProvider)
+        : this(innerProvider, overlayProvider, ownsOverlayProvider: false) { }
+
+    private OverlayFileProvider(
+        IFileProvider innerProvider,
+        PhysicalFileProvider overlayProvider,
+        bool ownsOverlayProvider
+    )
     {
         _innerProvider = innerProvider;
         _overlayProvider = overlayProvider;
+        _ownsOverlayProvider = ownsOverlayProvider;
     }
 
     private static PhysicalFileProvider CreateTempPhysicalFileProvider()
     {
         var applicationName = Assembly.GetEntryAssembly()?.GetName().Name;
         var directoryPrefix = applicationName is not null ? applicationName + "-" : null;
-        var tempRoot = Directory.CreateTempSubdirectory(directoryPrefix).FullName;
-        return new PhysicalFileProvider(tempRoot);
+        var overlayRoot = Directory.CreateTempSubdirectory(directoryPrefix).FullName;
+        return new PhysicalFileProvider(overlayRoot);
     }
 
     /// <summary>
@@ -87,8 +95,6 @@ public class OverlayFileProvider : IFileProvider
         // Preserve original LastModified time
         File.SetLastWriteTimeUtc(destinationPath, sourceFileInfo.LastModified.UtcDateTime);
 
-        _overlayedFiles.Add(normalizedPath);
-
         return new OverlayFile(destinationPath, filePath);
     }
 
@@ -103,14 +109,8 @@ public class OverlayFileProvider : IFileProvider
     /// </remarks>
     public IFileInfo GetFileInfo(string subpath)
     {
-        var normalizedPath = subpath.TrimStart('/');
-
-        if (_overlayedFiles.Contains(normalizedPath))
-        {
-            return _overlayProvider.GetFileInfo(subpath);
-        }
-
-        return _innerProvider.GetFileInfo(subpath);
+        var overlayInfo = _overlayProvider.GetFileInfo(subpath);
+        return overlayInfo.Exists ? overlayInfo : _innerProvider.GetFileInfo(subpath);
     }
 
     /// <inheritdoc/>
