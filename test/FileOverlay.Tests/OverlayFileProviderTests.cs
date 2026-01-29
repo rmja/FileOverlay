@@ -7,6 +7,8 @@ public class OverlayFileProviderTests : IDisposable
     private readonly string _testDirectory;
     private readonly PhysicalFileProvider _physicalProvider;
 
+    private static CancellationToken TestCancellationToken => TestContext.Current.CancellationToken;
+
     public OverlayFileProviderTests()
     {
         _testDirectory = Path.Combine(Path.GetTempPath(), $"FileOverlayTests_{Guid.NewGuid()}");
@@ -285,5 +287,93 @@ public class OverlayFileProviderTests : IDisposable
         {
             Assert.Equal("Modified", reader.ReadToEnd());
         }
+    }
+
+    [Fact]
+    public async Task CreateOverlay_WithAutoRefresh_ShouldUpdateWhenSourceChanges()
+    {
+        // Arrange
+        var testFile = Path.Combine(_testDirectory, "test.txt");
+        File.WriteAllText(testFile, "Original content");
+        using var provider = new OverlayFileProvider(_physicalProvider);
+        var overlayFile = provider.CreateOverlay("test.txt", autoRefresh: true);
+
+        // Act - Modify the source file
+        await Task.Delay(100, TestCancellationToken); // Small delay to ensure file watcher is set up
+        File.WriteAllText(testFile, "Updated content");
+        await Task.Delay(500, TestCancellationToken); // Wait for file change notification
+
+        // Assert
+        var content = File.ReadAllText(overlayFile.OverlayFilePath);
+        Assert.Equal("Updated content", content);
+    }
+
+    [Fact]
+    public async Task CreateOverlay_WithAutoRefresh_ShouldPreserveLastModifiedTime()
+    {
+        // Arrange
+        var testFile = Path.Combine(_testDirectory, "test.txt");
+        File.WriteAllText(testFile, "Original content");
+        using var provider = new OverlayFileProvider(_physicalProvider);
+        var overlayFile = provider.CreateOverlay("test.txt", autoRefresh: true);
+
+        // Act - Modify the source file with a specific timestamp
+        await Task.Delay(100, TestCancellationToken);
+        var newTime = new DateTime(2025, 6, 15, 14, 30, 0, DateTimeKind.Utc);
+        File.WriteAllText(testFile, "Updated content");
+        File.SetLastWriteTimeUtc(testFile, newTime);
+        await Task.Delay(500, TestCancellationToken);
+
+        // Assert
+        var overlayTime = File.GetLastWriteTimeUtc(overlayFile.OverlayFilePath);
+        Assert.Equal(newTime, overlayTime);
+    }
+
+    [Fact]
+    public async Task CreateOverlay_WithoutAutoRefresh_ShouldNotUpdateWhenSourceChanges()
+    {
+        // Arrange
+        var testFile = Path.Combine(_testDirectory, "test.txt");
+        File.WriteAllText(testFile, "Original content");
+        using var provider = new OverlayFileProvider(_physicalProvider);
+        var overlayFile = provider.CreateOverlay("test.txt", autoRefresh: false);
+
+        // Act - Modify the source file
+        await Task.Delay(100, TestCancellationToken);
+        File.WriteAllText(testFile, "Updated content");
+        await Task.Delay(500, TestCancellationToken);
+
+        // Assert - Overlay should still have original content
+        var content = File.ReadAllText(overlayFile.OverlayFilePath);
+        Assert.Equal("Original content", content);
+    }
+
+    [Fact]
+    public async Task Dispose_ShouldStopAutoRefresh()
+    {
+        // Arrange
+        var explicitOverlayDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"FileOverlayTests_{Guid.NewGuid()}"
+        );
+        Directory.CreateDirectory(explicitOverlayDirectory);
+
+        var testFile = Path.Combine(_testDirectory, "test.txt");
+        File.WriteAllText(testFile, "Original content");
+        var provider = new OverlayFileProvider(
+            _physicalProvider,
+            new PhysicalFileProvider(explicitOverlayDirectory)
+        );
+        var overlayFile = provider.CreateOverlay("test.txt", autoRefresh: true);
+
+        // Act - Dispose and then modify source
+        await Task.Delay(100, TestCancellationToken);
+        provider.Dispose();
+        File.WriteAllText(testFile, "Updated content");
+        await Task.Delay(500, TestCancellationToken);
+
+        // Assert - Overlay should still have original content
+        var content = File.ReadAllText(overlayFile.OverlayFilePath);
+        Assert.Equal("Original content", content);
     }
 }

@@ -7,6 +7,8 @@ public class BaseHrefExtensionsTests : IDisposable
     private readonly string _testDirectory;
     private readonly PhysicalFileProvider _physicalProvider;
 
+    private static CancellationToken TestCancellationToken => TestContext.Current.CancellationToken;
+
     public BaseHrefExtensionsTests()
     {
         _testDirectory = Path.Combine(Path.GetTempPath(), $"BaseHrefTests_{Guid.NewGuid()}");
@@ -212,5 +214,99 @@ public class BaseHrefExtensionsTests : IDisposable
         using var reader = new StreamReader(stream);
         var content = reader.ReadToEnd();
         Assert.Contains(@"<base href=""/myapp/"" />", content);
+    }
+
+    [Fact]
+    public async Task WithBaseHrefRewrite_WithAutoRefresh_ShouldReapplyTransformWhenSourceChanges()
+    {
+        // Arrange
+        var html = @"<html><head><base href=""/"" /></head><body>Content</body></html>";
+        var testFile = Path.Combine(_testDirectory, "index.html");
+        File.WriteAllText(testFile, html);
+
+        // Act
+        using var provider = _physicalProvider.WithBaseHrefRewrite(
+            "/myapp",
+            autoRefresh: true,
+            "index.html"
+        );
+
+        // Verify initial transform
+        var fileInfo = provider.GetFileInfo("index.html");
+        using (var stream = fileInfo.CreateReadStream())
+        using (var reader = new StreamReader(stream))
+        {
+            var content = reader.ReadToEnd();
+            Assert.Contains(@"<base href=""/myapp/"" />", content);
+        }
+
+        // Modify source file
+        await Task.Delay(100, TestCancellationToken);
+        var updatedHtml =
+            @"<html><head><base href=""/"" /></head><body>Updated Content</body></html>";
+        File.WriteAllText(testFile, updatedHtml);
+        await Task.Delay(500, TestCancellationToken);
+
+        // Assert - Transform should be reapplied
+        fileInfo = provider.GetFileInfo("index.html");
+        using (var stream = fileInfo.CreateReadStream())
+        using (var reader = new StreamReader(stream))
+        {
+            var content = reader.ReadToEnd();
+            Assert.Contains(@"<base href=""/myapp/"" />", content);
+            Assert.Contains("Updated Content", content);
+        }
+    }
+
+    [Fact]
+    public async Task WithBaseHrefRewrite_WithAutoRefresh_MultipleFiles_ShouldUpdateAllFiles()
+    {
+        // Arrange
+        var html1 = @"<html><head><base href=""/"" /></head><body>File 1</body></html>";
+        var html2 = @"<html><head><base href=""/"" /></head><body>File 2</body></html>";
+        var file1 = Path.Combine(_testDirectory, "page1.html");
+        var file2 = Path.Combine(_testDirectory, "page2.html");
+        File.WriteAllText(file1, html1);
+        File.WriteAllText(file2, html2);
+
+        // Act
+        using var provider = _physicalProvider.WithBaseHrefRewrite(
+            "/myapp",
+            autoRefresh: true,
+            "page1.html",
+            "page2.html"
+        );
+
+        await Task.Delay(100, TestCancellationToken);
+
+        // Update both source files
+        File.WriteAllText(
+            file1,
+            @"<html><head><base href=""/"" /></head><body>Updated File 1</body></html>"
+        );
+        File.WriteAllText(
+            file2,
+            @"<html><head><base href=""/"" /></head><body>Updated File 2</body></html>"
+        );
+        await Task.Delay(500, TestCancellationToken);
+
+        // Assert - Both files should have transforms reapplied
+        var fileInfo1 = provider.GetFileInfo("page1.html");
+        using (var stream = fileInfo1.CreateReadStream())
+        using (var reader = new StreamReader(stream))
+        {
+            var content = reader.ReadToEnd();
+            Assert.Contains(@"<base href=""/myapp/"" />", content);
+            Assert.Contains("Updated File 1", content);
+        }
+
+        var fileInfo2 = provider.GetFileInfo("page2.html");
+        using (var stream = fileInfo2.CreateReadStream())
+        using (var reader = new StreamReader(stream))
+        {
+            var content = reader.ReadToEnd();
+            Assert.Contains(@"<base href=""/myapp/"" />", content);
+            Assert.Contains("Updated File 2", content);
+        }
     }
 }

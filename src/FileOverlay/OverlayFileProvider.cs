@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using System.Text;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 
@@ -18,6 +19,12 @@ public class OverlayFileProvider : IFileProvider, IDisposable
     private readonly IFileProvider _innerProvider;
     private readonly PhysicalFileProvider _overlayProvider;
     private readonly bool _ownsOverlayProvider;
+    private readonly List<IDisposable> _changeTokenRegistrations = [];
+
+    /// <summary>
+    /// Gets the root directory path used for overlay operations.
+    /// </summary>
+    public string OverlayRoot => _overlayProvider.Root;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OverlayFileProvider"/> class.
@@ -49,6 +56,9 @@ public class OverlayFileProvider : IFileProvider, IDisposable
         bool ownsOverlayProvider
     )
     {
+        ArgumentNullException.ThrowIfNull(innerProvider, nameof(innerProvider));
+        ArgumentNullException.ThrowIfNull(overlayProvider, nameof(overlayProvider));
+
         _innerProvider = innerProvider;
         _overlayProvider = overlayProvider;
         _ownsOverlayProvider = ownsOverlayProvider;
@@ -65,23 +75,27 @@ public class OverlayFileProvider : IFileProvider, IDisposable
     /// <summary>
     /// Creates a physical copy of a file from the inner provider in the overlay directory.
     /// </summary>
-    /// <param name="filePath">The path of the file to overlay, relative to the provider root.</param>
+    /// <param name="relativeFilePath">The path of the file to overlay, relative to the provider root.</param>
+    /// <param name="autoRefresh">If true, automatically re-copies the file when the source changes. Useful for development scenarios with hot-reload.</param>
+    /// <param name="preserveLastModifiedTime">If true, preserves the LastModified timestamp from the source file.</param>
     /// <returns>An <see cref="OverlayFile"/> instance that can be used to transform the overlayed file.</returns>
     /// <exception cref="FileNotFoundException">Thrown when the source file does not exist in the inner provider.</exception>
     /// <remarks>
-    /// The overlayed file preserves the LastModified timestamp from the original file.
-    /// Once a file is overlayed, calls to <see cref="GetFileInfo"/> will return the overlay version.
+    /// <para>Once a file is overlayed, calls to <see cref="GetFileInfo"/> will return the overlay version.</para>
     /// </remarks>
-    public OverlayFile CreateOverlay(string filePath)
+    public OverlayFile CreateOverlay(
+        string relativeFilePath,
+        bool autoRefresh = false,
+        bool preserveLastModifiedTime = true
+    )
     {
-        // Normalize the path to remove leading slashes
-        var sourceFileInfo = _innerProvider.GetFileInfo(filePath);
+        var sourceFileInfo = _innerProvider.GetFileInfo(relativeFilePath);
         if (!sourceFileInfo.Exists)
         {
-            throw new FileNotFoundException($"Source file not found: {filePath}");
+            throw new FileNotFoundException($"Source file not found: {relativeFilePath}");
         }
 
-        var normalizedPath = filePath.TrimStart('/');
+        var normalizedPath = relativeFilePath.TrimStart('/');
         var destinationPath = Path.Combine(_overlayProvider.Root, normalizedPath);
         var destinationDir = Path.GetDirectoryName(destinationPath)!;
         Directory.CreateDirectory(destinationDir);
@@ -92,10 +106,69 @@ public class OverlayFileProvider : IFileProvider, IDisposable
             sourceStream.CopyTo(destStream);
         }
 
-        // Preserve original LastModified time
-        File.SetLastWriteTimeUtc(destinationPath, sourceFileInfo.LastModified.UtcDateTime);
+        if (preserveLastModifiedTime)
+        {
+            File.SetLastWriteTimeUtc(destinationPath, sourceFileInfo.LastModified.UtcDateTime);
+        }
 
-        return new OverlayFile(destinationPath, filePath);
+        var overlayFile = new OverlayFile(
+            relativeFilePath,
+            destinationPath,
+            autoRefresh,
+            preserveLastModifiedTime
+        );
+
+        if (autoRefresh)
+        {
+            var registration = ChangeToken.OnChange(
+                () => _innerProvider.Watch(relativeFilePath),
+                () => OnSourceFileChanged(overlayFile)
+            );
+            _changeTokenRegistrations.Add(registration);
+        }
+
+        return overlayFile;
+    }
+
+    private void OnSourceFileChanged(OverlayFile overlayFile)
+    {
+        try
+        {
+            var sourceFileInfo = _innerProvider.GetFileInfo(overlayFile.RelativeFilePath);
+            if (!sourceFileInfo.Exists)
+            {
+                return;
+            }
+
+            // Reapply all transforms in order
+            string content;
+            Encoding encoding;
+            using (var sourceFile = sourceFileInfo.CreateReadStream())
+            using (var reader = new StreamReader(sourceFile))
+            {
+                content = reader.ReadToEnd();
+                encoding = reader.CurrentEncoding;
+            }
+            foreach (var transform in overlayFile.Transforms)
+            {
+                content = transform(content);
+            }
+
+            var tempFileName = Path.GetTempFileName();
+            File.WriteAllText(tempFileName, content, encoding);
+
+            if (overlayFile.PreserveLastModifiedTime)
+            {
+                File.SetLastWriteTimeUtc(tempFileName, sourceFileInfo.LastModified.UtcDateTime);
+            }
+
+            // Replace the existing overlay file (this is atomic on most platforms)
+            File.Move(tempFileName, overlayFile.OverlayFilePath, overwrite: true);
+        }
+        catch
+        {
+            // Best effort - file might be locked, etc.
+        }
     }
 
     /// <inheritdoc/>
@@ -120,6 +193,13 @@ public class OverlayFileProvider : IFileProvider, IDisposable
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+
+        // Dispose all change token registrations
+        foreach (var registration in _changeTokenRegistrations)
+        {
+            registration.Dispose();
+        }
+        _changeTokenRegistrations.Clear();
 
         if (_ownsOverlayProvider)
         {
